@@ -47,6 +47,10 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "<本技能目錄>/scripts/ensure_
 
 一定要用 PowerShell 7 的 `pwsh`，**不要用 `powershell.exe`**（5.1）：5.1 會把腳本裡的中文讀成亂碼，直接解析失敗。
 
+Agent 的權限機制若擋下 `-ExecutionPolicy Bypass`，不要想辦法繞過，改在 pwsh 裡直接執行 `& "<本技能目錄>/scripts/ensure_env.ps1"`；這樣也因執行原則失敗時，請使用者自己執行上面那行。
+
+**環境還沒好之前，不要改用別的工具硬做**：要讀 PDF 時，不要用系統 Python 臨時 `pip install`，也不要用 Git Bash 內建的 `pdftotext`（它缺中文字碼對照表 `Adobe-CNS1`，中文會全部抽成空白）。先把本節的環境建好，再照 recipe 做。
+
 腳本會依序尋找可用環境，找不到就用 `uv` 自動建立共用環境並安裝核心套件，**最後一行印出 Python 直譯器完整路徑**。後續所有腳本都用這個直譯器執行，不要用系統 `python`：
 
 ```powershell

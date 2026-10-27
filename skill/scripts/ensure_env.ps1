@@ -181,9 +181,12 @@ $IsWindowsArm = $IsWindows -and
 $PythonRequest = if ($IsWindowsArm) { 'cpython-3.12-windows-x86_64-none' } else { '3.12' }
 
 if (-not (Test-Path -LiteralPath $SharedPython)) {
-    & $UvPath venv --python $PythonRequest $SharedVenv --quiet
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $SharedPython)) {
-        throw "Failed to create the shared environment at $SharedVenv."
+    # Keep uv's own output: on a fresh machine this step also downloads Python, and a bare
+    # "failed" message leaves nothing to diagnose once a retry succeeds.
+    $UvOutput = & $UvPath venv --python $PythonRequest $SharedVenv --quiet 2>&1 | Out-String
+    $UvExit = $LASTEXITCODE
+    if ($UvExit -ne 0 -or -not (Test-Path -LiteralPath $SharedPython)) {
+        throw "Failed to create the shared environment at $SharedVenv (uv exit code $UvExit, interpreter exists: $(Test-Path -LiteralPath $SharedPython)). uv output: $($UvOutput.Trim())"
     }
 }
 

@@ -4,7 +4,11 @@
 
 > 抽文字與轉圖一律用 `pypdfium2`，**不要另外裝 PyMuPDF（`import fitz`）**：它已移出核心，
 > 有些 Windows 11 開了 Smart App Control，PyMuPDF 的原生 DLL `_mupdf.pyd` 會被永久封鎖
-> （`應用程式控制原則已封鎖此檔案`），而 `pypdfium2` 不受影響。`pypdfium2` 的 `scale` 以 72 dpi 為 1.0，所以 `scale = dpi / 72`。
+> （`應用程式控制原則已封鎖此檔案`），而共用環境裡的 `pypdfium2` 不受影響。`pypdfium2` 的 `scale` 以 72 dpi 為 1.0，所以 `scale = dpi / 72`。
+>
+> **一定要用 `ensure_env.ps1` 印出的直譯器**：Windows on ARM 的共用環境是 x64 Python，裡面的 `pypdfium2` 可以載入；
+> 改用 ARM64 系統 Python 另裝的 `pypdfium2` 會被 Smart App Control 擋（`WinError 4551`，2026-10-27 實測）。
+> 也不要用 Git Bash 內建的 `pdftotext` 抽中文：它缺 `Adobe-CNS1` 字碼對照表，中文會全部變空白。
 
 ---
 

@@ -82,7 +82,7 @@ teach-file-toolkit/
 - Python 環境一律建在 repo 外的共用位置（Windows `%LOCALAPPDATA%\file-toolkit\.venv`、macOS `~/.local/share/file-toolkit/.venv`），`install_windows.ps1` 透過 `skill/scripts/ensure_env.ps1` 用同一份；**不要在 repo 內建 `.venv`**（repo 在雲端同步資料夾，而 venv 會寫死 base Python 的絕對路徑，換電腦就壞）
 - **Windows on ARM（RTX Spark、Snapdragon）的共用環境一律建成 x64 Python**（`cpython-3.12-windows-x86_64-none`，靠 Prism 模擬）。原生 ARM64 裝不起核心套件：`cryptography`（`pdfminer.six` 拉進來的）、`pi-heif`、`uharfbuzz` 都沒有 win_arm64 wheel。這段邏輯只在 `ensure_env.ps1`，`install_windows.ps1` 呼叫它
 - **`install_windows.ps1` 是 Windows 專屬**（winget、Program Files 偵測），已列入 `.platform-ok`。macOS 的環境建置走 `skill/scripts/ensure_env.ps1` ＋ `ensure_ocr.ps1`，那兩支是跨平台的；跨平台約定見 `agent-project-flow/platform.md`
-- **PowerShell 一律 pwsh 7**，三支腳本開頭都有 `$IsWindows` 的 guard；`.ps1` 一律 UTF-8 無 BOM。所有文件裡的執行指令都寫 `pwsh -NoProfile -ExecutionPolicy Bypass -File ...`，**不要寫 `powershell.exe`**
+- **PowerShell 一律 pwsh 7**，三支腳本開頭都有 `$IsWindows` 的 guard；`.ps1` 一律 UTF-8 無 BOM。所有文件裡的執行指令都寫 `pwsh -NoProfile -ExecutionPolicy Bypass -File ...`，**不要寫 `powershell.exe`**；Agent 的權限機制擋下 `-ExecutionPolicy Bypass` 時，改在 pwsh 裡直接 `& "<腳本路徑>"` 執行（執行原則允許本機腳本時可跑，2026-10-27 實測），`SKILL.md` 第 1 節有寫這個備案
 - 共用環境是既有環境就重用（3.12 以上即可），不要因為版本不是 3.12 就叫使用者刪掉——那是技能正在用的同一份
 - **產出一律放 `output/`**：本專案產生的檔案或資料夾（成品、匯出、報表、生成圖、渲染等）預設放專案根目錄的 `output/`，不另開 `outputs/`、`exports/`、`generated/`、`out/` 之類的資料夾，方便找；`output/` 不進 git。部署工具指定的建置目錄（`dist/`、`build/`）不在此限
 
@@ -101,6 +101,7 @@ teach-file-toolkit/
 - `powershell.exe`（5.1）會用 Big5 解讀無 BOM 的 UTF-8，中文註解的結尾會吃掉下一行程式碼，腳本直接解析失敗（2026-10-18 實測 `ensure_env.ps1` 在第 114 行出錯）——所以一律用 `pwsh` 執行，不是把腳本改成 ASCII
 - **Smart App Control（部分 Windows 11 預設開啟；NB-YI 與 PC-YI-SL 於 2026-08-20 皆為 `1`——PC-YI-SL 在 2026-08-05 曾記為未開啟，狀態會變，每台都要當場查）**會封鎖**尚未取得信譽**的執行檔與原生 DLL，典型症狀是 `uv.exe` 無法執行、PyMuPDF 的 `_mupdf.pyd` 載入失敗（`import fitz` → `No module named 'mupdf'`）。**但信譽會隨版本累積，不要假設某台電腦一定不行——當場實測**（2026-08-05 於 NB-YI／SAC=1 實測：`uv 0.11.31` 可執行、`PyMuPDF 1.28.0` 可 import）。真的被擋時的備案是改用系統 Python 的 `venv`＋`pip` 建環境。判斷指令：`(Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy').VerifiedAndReputablePolicyState`，`1` 為開啟。**SAC 一旦關閉就無法再開啟（需重設 Windows），不要建議使用者關掉它**
 - SAC 也會擋 **uv 寫進 `Scripts\` 的 45 KB 啟動器**，症狀是 `.venv\Scripts\python.exe` 一執行就回「應用程式控制原則已封鎖此檔案」，但**套件與 base Python 都是好的，壞的只有入口**。`ensure_env.ps1`（`install_windows.ps1` 也是透過它）已會自動偵測並用 base Python 的 `-m venv` 就地重建入口（保留 `site-packages`，不重裝套件）。同樣**信譽逐版累積**：2026-08-20 於 PC-YI-SL 實測，uv 0.11.25 於 2026-08-06 建的入口被擋、當下版本新建的沒被擋
+- **Windows on ARM 被 SAC 擋時，不要退回 ARM64 的系統 Python**（上面「系統 Python 的 `venv`＋`pip`」備案只適用 x64 電腦）：2026-10-27 於 LT-YI-RS（ARM64、SAC=`1`）實測，原生 ARM64 版 `pypdfium2` 的 `pdfium.dll` 被擋（`WinError 4551`），`pdfminer.six` 要編譯 `cryptography` 而裝不起來；同一天建的 x64 共用環境裡 `pypdfium2` 正常載入。ARM 電腦一律修 x64 共用環境
 - `.venv` 綁定建立當下的 base Python 絕對路徑，放在雲端同步資料夾**不能跨電腦共用**；共用環境一律建在 `%LOCALAPPDATA%\file-toolkit\.venv`
 - `ocrmypdf` 執行時會探測選用外部程式，印出數行 `[WinError 2] 系統找不到指定的檔案。` 屬正常，不影響結果
 - 跑 OCR 前必須有 `TESSDATA_PREFIX`。`ensure_ocr.ps1` 會設在使用者層級，但**同一個 session 已開的 shell 讀不到**——要重開 shell 或當場再設一次

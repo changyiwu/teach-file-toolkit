@@ -1,9 +1,18 @@
 [CmdletBinding()]
-param()
+param(
+    # Re-install the pinned list into a reused environment too (install_windows.ps1 uses this).
+    [switch]$Sync
+)
 
 # Find or create a Python environment with the 12 core packages.
 # The last line printed is the interpreter path.
 # Requires PowerShell 7 (pwsh) on both Windows and macOS.
+#
+# Three platforms, one shared environment path each:
+#   Windows x64        -> x64 Python
+#   Windows ARM64      -> native ARM64 Python first; if it cannot install or Smart App Control
+#                         blocks its native modules, rebuild as x64 Python under Prism emulation
+#   macOS Apple Silicon -> native arm64 Python (Intel Macs get whatever uv picks for 3.12)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -15,6 +24,7 @@ if ($null -eq $IsWindows) {
 
 $ScriptRoot = Split-Path -Parent $PSCommandPath
 $RequirementsPath = Join-Path $ScriptRoot 'requirements-core.txt'
+$ArmOverridesPath = Join-Path $ScriptRoot 'overrides-win-arm64.txt'
 
 if ($IsWindows) {
     $SharedVenv = Join-Path $env:LOCALAPPDATA 'file-toolkit' '.venv'   # platform-ok: Windows 分支內
@@ -28,10 +38,32 @@ if ($IsWindows) {
     $LocalPython = Join-Path (Get-Location).Path '.venv' 'bin' 'python'
 }
 
-$ImportCheck = 'import docx, openpyxl, pptx, pypdf, reportlab, PIL, matplotlib, qrcode, markitdown, docx2pdf, ocrmypdf, pypdfium2'
+# Importing is not enough: Smart App Control blocks individual native modules (.pyd) that load
+# lazily, e.g. matplotlib's Agg backend on a native ARM64 build (2026-10-28, LT-YI-RS). So actually
+# draw a chart, contour, save PDF, render a PDF page and load COM, the way the recipes do.
+# Single quotes only, so the code survives native argument passing on every pwsh 7 version.
+$CoreCheck = @'
+import io, sys
+import docx, openpyxl, pptx, pypdf, reportlab, PIL, matplotlib, qrcode, markitdown, docx2pdf, ocrmypdf, pypdfium2
+import numpy, pandas, lxml.etree, pikepdf, cryptography.hazmat.primitives.ciphers
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt
+fig, ax = plt.subplots()
+ax.plot([0, 1], [0, 1])
+ax.contour([[0, 1], [1, 0]])
+fig.savefig(io.BytesIO(), format='png')
+fig.savefig(io.BytesIO(), format='pdf')
+pdf = pypdfium2.PdfDocument.new()
+pdf.new_page(72, 72)
+pdf[0].render().to_pil().save(io.BytesIO(), 'PNG')
+if sys.platform == 'win32':
+    import win32com.client, pythoncom
+'@
 
-if (-not (Test-Path -LiteralPath $RequirementsPath)) {
-    throw "Missing requirements file: $RequirementsPath"
+foreach ($path in @($RequirementsPath, $ArmOverridesPath)) {
+    if (-not (Test-Path -LiteralPath $path)) {
+        throw "Missing file: $path"
+    }
 }
 
 function Test-PythonRuns {
@@ -52,14 +84,31 @@ function Test-PythonRuns {
     }
 }
 
-function Test-CoreEnv {
+function Get-CoreEnvError {
+    # $null when the environment passes $CoreCheck, otherwise the last line of the error.
     param([string]$PythonPath)
 
     if (-not (Test-PythonRuns -PythonPath $PythonPath)) {
-        return $false
+        return "the interpreter cannot run: $PythonPath"
     }
-    & $PythonPath -c $ImportCheck 2>$null | Out-Null
-    return ($LASTEXITCODE -eq 0)
+    $Output = & $PythonPath -c $CoreCheck 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 0) { return $null }
+    $Lines = @($Output.Trim() -split "`r?`n")
+    return $Lines[-1]
+}
+
+function Test-CoreEnv {
+    param([string]$PythonPath)
+    return ($null -eq (Get-CoreEnvError -PythonPath $PythonPath))
+}
+
+function Get-PythonPlatform {
+    # 'win-amd64', 'win-arm64', 'macosx-...-arm64'; $null when the interpreter cannot run.
+    # Not platform.machine(): x64 Python under Prism reports the host's ARM64 there.
+    param([string]$PythonPath)
+
+    if (-not (Test-PythonRuns -PythonPath $PythonPath)) { return $null }
+    return (& $PythonPath -c 'import sysconfig; print(sysconfig.get_platform())' 2>$null | Out-String).Trim()
 }
 
 function Repair-VenvLauncher {
@@ -94,7 +143,9 @@ function Repair-VenvLauncher {
             continue
         }
         Write-Host 'The environment launcher cannot run (Smart App Control). Rebuilding it with the base Python...'
-        & $candidate -m venv $VenvPath
+        # --without-pip: uv environments have no pip, and ensurepip itself can fail here
+        # (2026-10-28, LT-YI-RS x64 Python), which would sink an otherwise good repair.
+        & $candidate -m venv --without-pip $VenvPath
         if ($LASTEXITCODE -eq 0 -and (Test-PythonRuns -PythonPath $PythonPath)) {
             Write-Host 'Launcher rebuilt; the installed packages were kept.'
             return $true
@@ -126,6 +177,54 @@ function Find-Uv {
     return $null
 }
 
+# Extra uv pip arguments for an interpreter: native Windows ARM64 needs the overrides file that
+# drops uharfbuzz (no win_arm64 wheel); everything else installs the list as is.
+function Get-InstallArgs {
+    param([string]$PythonPath)
+    if ((Get-PythonPlatform -PythonPath $PythonPath) -eq 'win-arm64') {
+        return @('--overrides', $ArmOverridesPath)
+    }
+    return @()
+}
+
+function Install-CorePackages {
+    # $null on success, otherwise why it failed.
+    param([string]$UvPath, [string]$PythonPath)
+
+    $InstallArgs = @(Get-InstallArgs -PythonPath $PythonPath)
+    $UvOutput = & $UvPath pip install --python $PythonPath --requirements $RequirementsPath @InstallArgs --quiet --no-progress 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        return "uv pip install failed (exit code $LASTEXITCODE): $($UvOutput.Trim())"
+    }
+    return (Get-CoreEnvError -PythonPath $PythonPath)
+}
+
+function New-SharedEnv {
+    # Create (if missing) and fill the shared environment with the given uv Python request.
+    # $null on success, otherwise why it failed, so the ARM64 attempt can fall back to x64.
+    param([string]$UvPath, [string]$PythonRequest)
+
+    if (-not (Test-Path -LiteralPath $SharedPython)) {
+        # Keep uv's own output: on a fresh machine this step also downloads Python, and a bare
+        # "failed" message leaves nothing to diagnose once a retry succeeds.
+        $UvOutput = & $UvPath venv --python $PythonRequest $SharedVenv --quiet 2>&1 | Out-String
+        $UvExit = $LASTEXITCODE
+        if ($UvExit -ne 0 -or -not (Test-Path -LiteralPath $SharedPython)) {
+            return "Failed to create the shared environment at $SharedVenv (uv exit code $UvExit, interpreter exists: $(Test-Path -LiteralPath $SharedPython)). uv output: $($UvOutput.Trim())"
+        }
+    }
+
+    # uv pip install runs this interpreter, so the launcher has to work before the next step.
+    if ($IsWindows -and -not (Test-PythonRuns -PythonPath $SharedPython)) {
+        if (-not (Repair-VenvLauncher -VenvPath $SharedVenv -PythonPath $SharedPython)) {
+            return "The interpreter at $SharedPython cannot run, most likely blocked by Smart App Control, and rebuilding its launcher failed. Delete $SharedVenv and run this script again."
+        }
+    }
+
+    Write-Host 'Installing 12 core packages (media tools and advanced Office automation are excluded)...'
+    return (Install-CorePackages -UvPath $UvPath -PythonPath $SharedPython)
+}
+
 # A shared environment whose launcher is blocked still holds every core package. Repair the
 # entry point before the reuse check, or a healthy environment would be judged broken and
 # rebuilt from scratch.
@@ -133,7 +232,8 @@ if ($IsWindows -and (Test-Path -LiteralPath $SharedPython) -and -not (Test-Pytho
     Repair-VenvLauncher -VenvPath $SharedVenv -PythonPath $SharedPython | Out-Null
 }
 
-# Step 1: reuse an existing environment if one already has the core packages.
+# Step 1: reuse an existing environment if one already passes the core check, whatever its
+# architecture. An x64 environment on an ARM machine stays x64; delete it to retry native ARM64.
 $Candidates = @(
     $env:FILE_TOOLKIT_PYTHON,
     $LocalPython,
@@ -141,11 +241,26 @@ $Candidates = @(
 )
 
 foreach ($candidate in $Candidates) {
-    if (Test-CoreEnv -PythonPath $candidate) {
-        Write-Host 'Reusing existing core environment.'
-        Write-Output (Resolve-Path -LiteralPath $candidate).Path
-        exit 0
+    if (-not (Test-CoreEnv -PythonPath $candidate)) {
+        continue
     }
+    Write-Host "Reusing existing core environment ($(Get-PythonPlatform -PythonPath $candidate))."
+    if ($Sync) {
+        # Reuse passes with older pins too, so -Sync brings the versions back in line with the list.
+        $UvPath = Find-Uv
+        if ($UvPath) {
+            Write-Host 'Syncing the 12 core packages with the pinned list...'
+            $Failure = Install-CorePackages -UvPath $UvPath -PythonPath $candidate
+            if ($Failure) {
+                throw "Core package sync failed. Keep this error; do not install every optional package as a workaround. $Failure"
+            }
+        }
+        else {
+            Write-Host 'uv was not found, so the pinned versions were not re-synced. The existing environment passed the core check and is used as is.'
+        }
+    }
+    Write-Output (Resolve-Path -LiteralPath $candidate).Path
+    exit 0
 }
 
 # Step 2: no usable environment, so build the shared one.
@@ -173,39 +288,43 @@ if (-not $UvPath) {
     }
 }
 
-# Windows on ARM: use x64 Python under Prism emulation. Natively, cryptography (pulled in by
-# pdfminer.six), pi-heif and uharfbuzz have no win_arm64 wheels and fail to build.
-# Check the OS architecture, not the process: x64 pwsh under emulation reports X64.
-$IsWindowsArm = $IsWindows -and
-    [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [Runtime.InteropServices.Architecture]::Arm64
-$PythonRequest = if ($IsWindowsArm) { 'cpython-3.12-windows-x86_64-none' } else { '3.12' }
+# Check the OS architecture, not the process: x64 pwsh under emulation reports X64 as its process.
+$IsArmHost = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [Runtime.InteropServices.Architecture]::Arm64
+$X64Request = 'cpython-3.12-windows-x86_64-none'
 
-if (-not (Test-Path -LiteralPath $SharedPython)) {
-    # Keep uv's own output: on a fresh machine this step also downloads Python, and a bare
-    # "failed" message leaves nothing to diagnose once a retry succeeds.
-    $UvOutput = & $UvPath venv --python $PythonRequest $SharedVenv --quiet 2>&1 | Out-String
-    $UvExit = $LASTEXITCODE
-    if ($UvExit -ne 0 -or -not (Test-Path -LiteralPath $SharedPython)) {
-        throw "Failed to create the shared environment at $SharedVenv (uv exit code $UvExit, interpreter exists: $(Test-Path -LiteralPath $SharedPython)). uv output: $($UvOutput.Trim())"
+if ($IsWindows -and $IsArmHost) {
+    # A leftover x64 environment here only failed the check (missing or broken packages), so
+    # repair it as x64 instead of throwing it away for another native attempt.
+    if ((Get-PythonPlatform -PythonPath $SharedPython) -eq 'win-amd64') {
+        Write-Host 'Windows ARM64: repairing the existing x64 environment...'
+        $Failure = New-SharedEnv -UvPath $UvPath -PythonRequest $X64Request
+    }
+    else {
+        Write-Host 'Windows ARM64: trying a native ARM64 environment first...'
+        $Failure = New-SharedEnv -UvPath $UvPath -PythonRequest 'cpython-3.12-windows-aarch64-none'
+        if ($Failure) {
+            # Native ARM64 wheels are downloaded far less, so Smart App Control often has no
+            # reputation for their DLLs yet (2026-10-28, LT-YI-RS: 28 of 152 modules blocked).
+            Write-Host "Native ARM64 environment is not usable: $Failure"
+            Write-Host 'Falling back to x64 Python under Prism emulation...'
+            if (Test-Path -LiteralPath $SharedVenv) {
+                Remove-Item -LiteralPath $SharedVenv -Recurse -Force
+            }
+            $Failure = New-SharedEnv -UvPath $UvPath -PythonRequest $X64Request
+        }
     }
 }
-
-# uv pip install runs this interpreter, so the launcher has to work before the next step.
-if ($IsWindows -and -not (Test-PythonRuns -PythonPath $SharedPython)) {
-    if (-not (Repair-VenvLauncher -VenvPath $SharedVenv -PythonPath $SharedPython)) {
-        throw "The interpreter at $SharedPython cannot run, most likely blocked by Smart App Control, and rebuilding its launcher failed. Delete $SharedVenv and run this script again."
-    }
+elseif ($IsMacOS -and $IsArmHost) {
+    # Ask for arm64 explicitly so a Rosetta-launched shell does not end up with an x86_64 Python.
+    $Failure = New-SharedEnv -UvPath $UvPath -PythonRequest 'cpython-3.12-macos-aarch64-none'
+}
+else {
+    $Failure = New-SharedEnv -UvPath $UvPath -PythonRequest '3.12'
 }
 
-Write-Host 'Installing 12 core packages (media tools and advanced Office automation are excluded)...'
-& $UvPath pip install --python $SharedPython --requirements $RequirementsPath --quiet --no-progress
-if ($LASTEXITCODE -ne 0) {
-    throw 'Core package installation failed. Keep the original error above; do not install every optional package as a workaround.'
+if ($Failure) {
+    throw "Core environment setup failed. Keep this error; do not install every optional package as a workaround. $Failure"
 }
 
-if (-not (Test-CoreEnv -PythonPath $SharedPython)) {
-    throw 'Core packages were installed, but the import check still fails.'
-}
-
-Write-Host 'Shared core environment is ready.'
+Write-Host "Shared core environment is ready ($(Get-PythonPlatform -PythonPath $SharedPython))."
 Write-Output (Resolve-Path -LiteralPath $SharedPython).Path

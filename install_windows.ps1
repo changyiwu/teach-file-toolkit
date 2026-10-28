@@ -42,20 +42,6 @@ if ((Get-FileHash -LiteralPath $RootRequirementsPath).Hash -ne (Get-FileHash -Li
     throw "requirements-core.txt differs from skill/scripts/requirements-core.txt. Make the two files identical and run this script again."
 }
 
-function Find-Uv {
-    $command = Get-Command 'uv' -ErrorAction SilentlyContinue
-    if ($command) { return $command.Source }
-
-    $candidates = @(
-        (Join-Path $env:USERPROFILE '.local' 'bin' 'uv.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Microsoft' 'WinGet' 'Links' 'uv.exe')
-    )
-    foreach ($candidate in $candidates) {
-        if (Test-Path -LiteralPath $candidate) { return $candidate }
-    }
-    return $null
-}
-
 function Find-Word {
     $registryPaths = @(
         'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\WINWORD.EXE',
@@ -83,41 +69,29 @@ function Find-Word {
     return $null
 }
 
-Write-Host '[1/5] Preparing the shared Python environment (skill/scripts/ensure_env.ps1)...'
-# ensure_env.ps1 prints progress with Write-Host and the interpreter path as its last output line.
-$EnvOutput = @(& $EnsureEnvPath)
+Write-Host '[1/4] Preparing the shared Python environment (skill/scripts/ensure_env.ps1)...'
+# ensure_env.ps1 picks the architecture (x64, native ARM64 with x64 fallback) and, with -Sync, also
+# brings a reused environment back in line with the pinned list. This installer is the "repair"
+# entry point, so always sync. It prints progress with Write-Host and the interpreter path last.
+$EnvOutput = @(& $EnsureEnvPath -Sync)
 $PythonPath = if ($EnvOutput.Count -gt 0) { [string]$EnvOutput[-1] } else { $null }
 if (-not $PythonPath -or -not (Test-Path -LiteralPath $PythonPath)) {
     throw 'ensure_env.ps1 did not report a usable Python interpreter. Keep the error above.'
 }
 Write-Host "Python: $PythonPath"
 
-Write-Host '[2/5] Syncing the 12 core packages with the pinned list...'
-# ensure_env.ps1 reuses any environment whose imports pass, even with older pins. This installer is
-# also the "repair" entry point, so bring the versions back in line with the list.
-$UvPath = Find-Uv
-if ($UvPath) {
-    & $UvPath pip install --python $PythonPath --requirements $RequirementsPath --quiet --no-progress
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Core package installation failed. Keep the original error above; do not install every optional package as a workaround.'
-    }
-}
-else {
-    Write-Host 'uv was not found, so the pinned versions were not re-synced. The existing environment passed the import check and is used as is.'
-}
-
-Write-Host '[3/5] Checking Microsoft Word...'
+Write-Host '[2/4] Checking Microsoft Word...'
 $WordPath = Find-Word
 if (-not $WordPath) {
     throw 'Microsoft Word was not found. It is required by the core docx2pdf workflow and cannot be installed automatically because it requires an Office license.'
 }
 Write-Host "Microsoft Word: $WordPath"
 
-Write-Host '[4/5] Preparing Tesseract OCR and the Traditional Chinese model (skill/scripts/ensure_ocr.ps1)...'
+Write-Host '[3/4] Preparing Tesseract OCR and the Traditional Chinese model (skill/scripts/ensure_ocr.ps1)...'
 # ensure_ocr.ps1 sets TESSDATA_PREFIX for this process too, so verify_core.py below can see it.
 & $EnsureOcrPath
 
-Write-Host '[5/5] Verifying core packages and file workflows...'
+Write-Host '[4/4] Verifying core packages and file workflows...'
 & $PythonPath $VerifyPath
 if ($LASTEXITCODE -ne 0) {
     throw 'Core package verification failed.'

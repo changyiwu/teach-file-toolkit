@@ -1,0 +1,6 @@
+# 只在共用環境是原生 Windows ARM64（sysconfig 回報 win-arm64）時由 ensure_env.ps1 傳給 uv --overrides。
+# 不能寫成 requirements-core.txt 的 platform_machine 標記：x64 Python 在 Prism 下也回報 ARM64。
+# cryptography（pdfminer.six 拉進來的）46.0.4 起不再出 win_arm64 wheel，固定在最後一版有的。
+cryptography==46.0.3
+# uharfbuzz（ocrmypdf 的 fpdf2 渲染器用）沒有 win_arm64 wheel，排除後 OCR 改走 sandwich 渲染器。
+uharfbuzz ; sys_platform == 'never'

@@ -6,8 +6,8 @@
 > 有些 Windows 11 開了 Smart App Control，PyMuPDF 的原生 DLL `_mupdf.pyd` 會被永久封鎖
 > （`應用程式控制原則已封鎖此檔案`），而共用環境裡的 `pypdfium2` 不受影響。`pypdfium2` 的 `scale` 以 72 dpi 為 1.0，所以 `scale = dpi / 72`。
 >
-> **一定要用 `ensure_env.ps1` 印出的直譯器**：Windows on ARM 的共用環境是 x64 Python，裡面的 `pypdfium2` 可以載入；
-> 改用 ARM64 系統 Python 另裝的 `pypdfium2` 會被 Smart App Control 擋（`WinError 4551`，2026-10-27 實測）。
+> **一定要用 `ensure_env.ps1` 印出的直譯器**：Windows on ARM 的共用環境可能是原生 ARM64，也可能是 x64，看 `ensure_env.ps1` 實測哪個沒被 Smart App Control 擋；
+> 自己用 ARM64 系統 Python 另裝的 `pypdfium2` 沒經過這道檢查，可能被擋（`WinError 4551`，2026-10-27 實測）。
 > 也不要用 Git Bash 內建的 `pdftotext` 抽中文：它缺 `Adobe-CNS1` 字碼對照表，中文會全部變空白。
 
 ---
@@ -123,6 +123,7 @@ ocrmypdf.ocr(
     target,
     language=["chi_tra", "eng"],     # 繁中講義固定用這組；純英文用 ["eng"]
     output_type="pdf",               # 不要用 pdfa，會需要 Ghostscript
+    pdf_renderer="sandwich",         # 原生 Windows ARM64 環境沒有 uharfbuzz，預設的 fpdf2 渲染器會失敗；三個平台都用這個
     optimize=0,
     skip_text=True,                  # 已經有文字層的頁面跳過，避免重複疊字
     progress_bar=False,

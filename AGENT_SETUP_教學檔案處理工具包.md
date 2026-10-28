@@ -41,8 +41,8 @@ pwsh -File skill/scripts/ensure_ocr.ps1      # brew 安裝 tesseract / tesseract
 
 `install_windows.ps1` 本身不重做安裝邏輯，而是依序呼叫技能的兩支跨平台腳本，再驗證：
 
-1. `skill/scripts/ensure_env.ps1`：找到 `uv`（沒有就透過 WinGet 安裝官方 `astral-sh.uv`），以 Python 3.12 建立共用環境 `%LOCALAPPDATA%\file-toolkit\.venv`（本機沒有 3.12 時由 `uv` 下載），安裝 [`skill/scripts/requirements-core.txt`](skill/scripts/requirements-core.txt) 的 12 項核心套件。
-2. 環境已存在時，再用 `uv` 依同一份清單同步一次，確保版本與清單一致。
+1. `skill/scripts/ensure_env.ps1`：找到 `uv`（沒有就透過 WinGet 安裝官方 `astral-sh.uv`），以 Python 3.12 建立共用環境 `%LOCALAPPDATA%\file-toolkit\.venv`（本機沒有 3.12 時由 `uv` 下載），安裝 [`skill/scripts/requirements-core.txt`](skill/scripts/requirements-core.txt) 的 12 項核心套件。架構依平台決定：Windows x64 建 x64；**Windows on ARM 先建原生 ARM64，裝不起來或被 Smart App Control 擋就自動改建 x64**；macOS Apple Silicon 建原生 arm64。
+2. 環境已存在時（不論架構），`install_windows.ps1` 以 `ensure_env.ps1 -Sync` 依同一份清單同步一次，確保版本與清單一致。
 3. 確認 Microsoft Word；若未安裝，清楚回報 `docx2pdf` 的必要前置，不自動安裝 Office。
 4. `skill/scripts/ensure_ocr.ps1`：找到 Tesseract（沒有就透過 WinGet 安裝官方套件），並設定英文、方向與繁中 `chi_tra` 模型。
 5. 執行 [`verify_core.py`](verify_core.py)，驗證套件匯入、Word 轉 PDF、英文 OCR 與繁中顛倒頁 OCR；通過標準是 `CORE_OK: 12/12`。

@@ -59,6 +59,8 @@ Agent 的權限機制若擋下 `-ExecutionPolicy Bypass`，不要想辦法繞過
 
 尋找順序：`FILE_TOOLKIT_PYTHON` 環境變數 → 目前專案的 `.\.venv` → 共用環境 `%LOCALAPPDATA%\file-toolkit\.venv`。
 
+新建時架構由腳本決定：Windows on ARM 先試原生 ARM64，被 Smart App Control 擋或裝不起來會自動改建 x64。**照它印出的路徑用就好，不要自己另建 ARM64 或 x64 環境**。
+
 **OCR 任務（掃描 PDF 轉可搜尋文字）額外執行一次**，它會裝好 Tesseract 與繁體中文模型：
 
 ```powershell

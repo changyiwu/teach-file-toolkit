@@ -21,6 +21,14 @@
 
 Agent 會以 Python 3.12 建立共用環境（與技能同一份，不建在這個 repo 裡）、安裝 12 項核心工具並驗證。核心流程會自動安裝 Tesseract OCR、英文／方向／繁中模型，並驗證 `docx2pdf`；電腦必須已安裝有授權的 Microsoft Word。影音與進階 Office 自動化工具不會自動安裝。
 
+環境的架構依電腦自動決定：
+
+| 電腦 | 建出的環境 |
+|---|---|
+| Windows x64 | x64 Python |
+| Windows on ARM（Snapdragon、RTX Spark） | 先試原生 ARM64；裝不起來或被 Smart App Control 擋，自動改用 x64（靠 Prism 模擬） |
+| macOS M 晶片 | 原生 arm64 Python |
+
 共用環境的位置兩個平台不同：
 
 | | 共用 venv | 套件管理 |

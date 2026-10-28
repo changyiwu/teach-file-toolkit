@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from pathlib import Path
 
@@ -203,6 +204,7 @@ def run_smoke_tests() -> None:
             ocr_pdf_path,
             language=["eng"],
             output_type="pdf",
+            pdf_renderer="sandwich",   # 原生 Windows ARM64 環境沒有 uharfbuzz，預設的 fpdf2 渲染器會失敗
             optimize=0,
             progress_bar=False,
         )
@@ -240,6 +242,7 @@ def verify_cjk_upside_down_ocr(root: Path) -> None:
         target,
         language=["chi_tra", "eng"],
         output_type="pdf",
+        pdf_renderer="sandwich",
         optimize=0,
         skip_text=True,
         progress_bar=False,
@@ -282,7 +285,7 @@ def main() -> int:
         return 1
 
     version = '.'.join(str(part) for part in sys.version_info[:3])
-    print(f"CORE_OK: {len(MODULES)}/{len(MODULES)} imports and file smoke tests (Python {version})")
+    print(f"CORE_OK: {len(MODULES)}/{len(MODULES)} imports and file smoke tests (Python {version}, {sysconfig.get_platform()})")
     return 0
 
 

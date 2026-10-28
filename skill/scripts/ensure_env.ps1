@@ -30,14 +30,21 @@ $ScriptRoot = Split-Path -Parent $PSCommandPath
 $RequirementsPath = Join-Path $ScriptRoot 'requirements-core.txt'
 $ArmOverridesPath = Join-Path $ScriptRoot 'overrides-win-arm64.txt'
 
+# Same place on both platforms. Not %LOCALAPPDATA% on Windows: the Claude desktop app is an MSIX
+# package, and AppData writes made from inside it land in its private
+# Packages\Claude_*\LocalCache folder, invisible to Explorer, terminals and other agents
+# (2026-10-28, LT-YI-RS). Not ~/Library/Application Support on macOS: no spaces in the path,
+# which keeps quoting simple for every tool that receives this interpreter path.
+$SharedVenv = Join-Path $HOME '.local' 'share' 'file-toolkit' '.venv'
 if ($IsWindows) {
-    $SharedVenv = Join-Path $env:LOCALAPPDATA 'file-toolkit' '.venv'   # platform-ok: Windows 分支內
     $SharedPython = Join-Path $SharedVenv 'Scripts' 'python.exe'
     $LocalPython = Join-Path (Get-Location).Path '.venv' 'Scripts' 'python.exe'
+    # The venv points at its base Python by absolute path, and uv's default for that is
+    # %APPDATA%\uv\python, which the same redirection would hide. Keep it next to the venv.
+    if (-not $env:UV_PYTHON_INSTALL_DIR) {
+        $env:UV_PYTHON_INSTALL_DIR = Join-Path $HOME '.local' 'share' 'uv' 'python'
+    }
 } else {
-    # ~/.local/share rather than ~/Library/Application Support: no spaces in the path,
-    # which keeps quoting simple for every tool that receives this interpreter path.
-    $SharedVenv = Join-Path $HOME '.local' 'share' 'file-toolkit' '.venv'
     $SharedPython = Join-Path $SharedVenv 'bin' 'python'
     $LocalPython = Join-Path (Get-Location).Path '.venv' 'bin' 'python'
 }

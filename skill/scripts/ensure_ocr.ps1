@@ -91,10 +91,12 @@ if (-not $TesseractPath) {
 }
 Write-Host "Tesseract OCR: $TesseractPath"
 
-# Models cannot be written into Program Files, so keep them under the user profile.
+# Models cannot be written into Program Files, so keep them under the user profile, next to the
+# shared environment. Not %LOCALAPPDATA%: run from the Claude desktop app (an MSIX package) that
+# write lands in its private LocalCache, while TESSDATA_PREFIX is seen by every program.
 Write-Host '[2/3] Configuring English, orientation, and Traditional Chinese OCR data...'
 $SourceTessData = Join-Path (Split-Path -Parent $TesseractPath) 'tessdata'
-$TessData = Join-Path $env:LOCALAPPDATA 'Tesseract-OCR' 'tessdata'   # platform-ok: Windows 專屬段落
+$TessData = Join-Path $HOME '.local' 'share' 'file-toolkit' 'tessdata'
 New-Item -ItemType Directory -Path $TessData -Force | Out-Null
 
 foreach ($fileName in @('eng.traineddata', 'osd.traineddata', 'pdf.ttf')) {

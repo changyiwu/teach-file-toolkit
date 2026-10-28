@@ -12,7 +12,7 @@
 
 1. **只在本 repo 內工作**：以本檔所在資料夾為專案根目錄，不要搜尋其他磁碟或其他 Agent 的資料夾。
 2. **只執行核心安裝**：核心包含 Tesseract OCR 與繁中模型；不要安裝其餘選用套件或系統工具，除非使用者明確點名用途。
-3. **不要使用全域 `pip install`**：核心套件安裝到共用環境 `%LOCALAPPDATA%\file-toolkit\.venv`，避免污染使用者原有 Python。也不要改建在本 repo 內——repo 位於雲端同步資料夾，venv 綁死 base Python 的絕對路徑，換電腦會壞。
+3. **不要使用全域 `pip install`**：核心套件安裝到共用環境 `~/.local/share/file-toolkit/.venv`，避免污染使用者原有 Python。也不要改建在本 repo 內——repo 位於雲端同步資料夾，venv 綁死 base Python 的絕對路徑，換電腦會壞。
 4. **不要逐項上網研究**：套件與版本交給 `uv` 解析；不要為每個套件另開網頁、產生長篇計畫或重複說明。
 5. **最多重試一次**：失敗時先回報原始錯誤與建議，不要反覆改指令、重裝或自動改用系統管理員權限。
 6. **不自動切換執行環境**：Windows、WSL、沙盒是不同環境；不要為了安裝而自行改用 WSL、Docker 或另一個 Agent。
@@ -41,14 +41,14 @@ pwsh -File skill/scripts/ensure_ocr.ps1      # brew 安裝 tesseract / tesseract
 
 `install_windows.ps1` 本身不重做安裝邏輯，而是依序呼叫技能的兩支跨平台腳本，再驗證：
 
-1. `skill/scripts/ensure_env.ps1`：找到 `uv`（沒有就透過 WinGet 安裝官方 `astral-sh.uv`），以 Python 3.12 建立共用環境 `%LOCALAPPDATA%\file-toolkit\.venv`（本機沒有 3.12 時由 `uv` 下載），安裝 [`skill/scripts/requirements-core.txt`](skill/scripts/requirements-core.txt) 的 12 項核心套件。架構依平台決定：Windows x64 建 x64；**Windows on ARM 先建原生 ARM64，裝不起來或被 Smart App Control 擋就自動改建 x64**；macOS Apple Silicon 建原生 arm64。
+1. `skill/scripts/ensure_env.ps1`：找到 `uv`（沒有就透過 WinGet 安裝官方 `astral-sh.uv`），以 Python 3.12 建立共用環境 `~/.local/share/file-toolkit/.venv`（本機沒有 3.12 時由 `uv` 下載），安裝 [`skill/scripts/requirements-core.txt`](skill/scripts/requirements-core.txt) 的 12 項核心套件。架構依平台決定：Windows x64 建 x64；**Windows on ARM 先建原生 ARM64，裝不起來或被 Smart App Control 擋就自動改建 x64**；macOS Apple Silicon 建原生 arm64。
 2. 環境已存在時（不論架構），`install_windows.ps1` 以 `ensure_env.ps1 -Sync` 依同一份清單同步一次，確保版本與清單一致。
 3. 確認 Microsoft Word；若未安裝，清楚回報 `docx2pdf` 的必要前置，不自動安裝 Office。
 4. `skill/scripts/ensure_ocr.ps1`：找到 Tesseract（沒有就透過 WinGet 安裝官方套件），並設定英文、方向與繁中 `chi_tra` 模型。
 5. 執行 [`verify_core.py`](verify_core.py)，驗證套件匯入、Word 轉 PDF、英文 OCR 與繁中顛倒頁 OCR；通過標準是 `CORE_OK: 12/12`。
 
 > 安裝期間若 Antigravity、Claude Code、Codex 或 OpenCode 顯示執行指令／安裝程式的權限確認，
-> 請讓使用者看清楚目標是 `%LOCALAPPDATA%\file-toolkit\.venv`、官方 `astral-sh.uv`、`UB-Mannheim.TesseractOCR`
+> 請讓使用者看清楚目標是 `~/.local/share/file-toolkit/.venv`、官方 `astral-sh.uv`、`UB-Mannheim.TesseractOCR`
 > 與使用者層級的 Tesseract 語言資料後自行核准。
 
 ---
@@ -142,12 +142,12 @@ pwsh -File skill/scripts/ensure_ocr.ps1      # brew 安裝 tesseract / tesseract
 下一步：請使用 <venv 直譯器完整路徑> 執行本 repo 的 Python 程式
 ```
 
-共用 venv 的位置與直譯器檔名兩個平台不同，照 `ensure_env.ps1` 實際印出的那一行填：
+共用 venv 兩個平台都在 `~/.local/share/file-toolkit/.venv`，只有直譯器檔名不同，照 `ensure_env.ps1` 實際印出的那一行填：
 
-| | 共用 venv | 直譯器 |
-|---|---|---|
-| Windows | `%LOCALAPPDATA%\file-toolkit\.venv` | `Scripts\python.exe` |
-| macOS | `~/.local/share/file-toolkit/.venv` | `bin/python` |
+| | 直譯器 |
+|---|---|
+| Windows | `Scripts\python.exe` |
+| macOS | `bin/python` |
 
 若失敗，列出失敗步驟與原始錯誤摘要即可；不要自動安裝選用工具補救。
 

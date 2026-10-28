@@ -145,7 +145,7 @@ print(text[:200])
 
 - OCR 很慢：A4 每頁約 2～5 秒，整本 100 頁先跟使用者說要等；先只做前 3 頁確認辨識品質再全做
 - `output_type="pdfa"` 需要 Ghostscript，核心環境沒裝，會直接失敗
-- 找不到 `chi_tra`：模型不能放在 `Program Files`，要在 `%LOCALAPPDATA%\Tesseract-OCR\tessdata`
+- 找不到 `chi_tra`：模型不能放在 `Program Files`，Windows 放在 `~/.local/share/file-toolkit/tessdata`（`ensure_ocr.ps1` 會處理）
 - 辨識率差通常是掃描 dpi 太低（< 200）或紙張太歪，這是來源問題，要如實告訴使用者
 - 字很少、印章很大的頁面（簽章頁、核章頁）用預設設定常常一個字都抽不到：方向信心只有 3 左右，低於門檻 5 就不會轉正，就算轉正了預設的版面分析也找不到字。這種頁面先用 pypdf 的 `page.rotate(180)` 手動轉正，再加 `tesseract_pagesegmode=11` 重跑
 - 不要為了這種頁面把 `rotate_pages_threshold` 再往下調：信心越低越容易轉錯方向，整批文件都會受影響

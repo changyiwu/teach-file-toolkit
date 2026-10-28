@@ -19,7 +19,7 @@
 - [x] 階段五：把檔案處理能力包裝成 `skill/`（SKILL.md＋環境腳本＋五份 recipe），16 段 recipe 程式碼實測通過
 - [x] 階段六：PDF 抽文字與轉圖改用 `pypdfium2`，讓技能在開啟 Smart App Control 的電腦也能完整運作（`CORE_OK: 12/12`）
 - [x] 階段七：把 `Python範例.md`、`教學檔案處理_工具列表.md`、`AGENT_SETUP_教學檔案處理工具包.md`（連同 `make_pdf.py` 與工具列表 PDF）裡「PDF 轉圖用 PyMuPDF」的敘述同步改為 `pypdfium2`
-- [x] 階段八：`install_windows.ps1` 改建共用環境 `%LOCALAPPDATA%\file-toolkit\.venv`（與技能同一份，不再建在雲端同步的 repo 內）；`Python範例.md` 與 `教學檔案處理_工具列表.md` 合併為單一清單，移除 `make_pdf.py` 與工具列表 PDF
+- [x] 階段八：`install_windows.ps1` 改建共用環境（與技能同一份；2026-10-28 由 `%LOCALAPPDATA%` 改放 `~/.local/share/file-toolkit/.venv`，不再建在雲端同步的 repo 內）；`Python範例.md` 與 `教學檔案處理_工具列表.md` 合併為單一清單，移除 `make_pdf.py` 與工具列表 PDF
 - [x] 階段九：以實際教材測試 Word 批次轉 PDF／JPG（通過），以及繁中掃描 PDF OCR（D3 補上 `rotate_pages`＋門檻 5、稀疏頁與框線標題兩條陷阱）
 - [x] 階段十：全專案檢視整理——移除 PyMuPDF、選裝文件改寫間接相依、`install_windows.ps1` 改串接技能兩支腳本、統一 pwsh、修 `SKILL.md` 與 Excel E1／E3、`verify_core.py` 加繁中顛倒頁 OCR 測試
 - [ ] 階段十一：只有需要特定 PDF/A 流程時才另外評估 Ghostscript
@@ -43,7 +43,7 @@ teach-file-toolkit/
 │  └─ references/                         # word／excel／pptx／pdf／misc 五份實測 recipe
 ├─ AGENTS.md                              # 本檔：專案藍圖
 ├─ handoff.md                             # 交接檔（每次收工必更新）
-├─ .agents/  .gitignore                    # 環境不在 repo 內，見 %LOCALAPPDATA%\file-toolkit\.venv
+├─ .agents/  .gitignore                    # 環境不在 repo 內，見 ~/.local/share/file-toolkit/.venv
 ```
 
 ## 同步層級（本專案初始化至第 3 層級）
@@ -80,7 +80,8 @@ teach-file-toolkit/
 - `pandas`、`pdfplumber`、`xlsxwriter` 是核心套件的間接相依（`markitdown[xlsx]`、`markitdown[pdf]`、`python-pptx`），文件一律寫「已隨核心安裝」，不要再列為選裝
 - 環境建置邏輯只寫在 `skill/scripts/ensure_env.ps1`＋`ensure_ocr.ps1`；`install_windows.ps1` 只負責串接、Word 檢查與驗證，**不要再把安裝邏輯複製回去**
 - 根目錄與 `skill/scripts/` 各有一份 `requirements-core.txt`（技能拷出 repo 也要能用），兩份必須逐位元組相同，`install_windows.ps1` 會檢查
-- Python 環境一律建在 repo 外的共用位置（Windows `%LOCALAPPDATA%\file-toolkit\.venv`、macOS `~/.local/share/file-toolkit/.venv`），`install_windows.ps1` 透過 `skill/scripts/ensure_env.ps1` 用同一份；**不要在 repo 內建 `.venv`**（repo 在雲端同步資料夾，而 venv 會寫死 base Python 的絕對路徑，換電腦就壞）
+- Python 環境一律建在 repo 外的共用位置 `~/.local/share/file-toolkit/.venv`（兩個平台同一個位置），`install_windows.ps1` 透過 `skill/scripts/ensure_env.ps1` 用同一份；**不要在 repo 內建 `.venv`**（repo 在雲端同步資料夾，而 venv 會寫死 base Python 的絕對路徑，換電腦就壞）
+- **Windows 上本專案要給其他程式看的東西都不要放 `%LOCALAPPDATA%`／`%APPDATA%`**：Claude 桌面版是 MSIX 套件，從它裡面寫進 AppData 的東西會被轉到 `Packages\Claude_*\LocalCache`，檔案總管、終端機、其他 Agent 都看不到。共用環境、繁中 OCR 模型（`~/.local/share/file-toolkit/tessdata`）、uv 下載的 base Python（`ensure_env.ps1` 沒設 `UV_PYTHON_INSTALL_DIR` 時會指到 `~/.local/share/uv/python`）一律放 `~/.local/share` 底下
 - **共用環境依平台分三條路**（邏輯只在 `ensure_env.ps1`）：Windows x64 → x64 Python；macOS Apple Silicon → 原生 arm64（`cpython-3.12-macos-aarch64-none`）；**Windows on ARM（RTX Spark、Snapdragon）→ 先建原生 ARM64（`cpython-3.12-windows-aarch64-none`），裝不起來或實測被 SAC 擋就刪掉改建 x64（`cpython-3.12-windows-x86_64-none`，靠 Prism 模擬）**。判斷被擋靠 `ensure_env.ps1` 的 `$CoreCheck`：它實際畫圖、存 PDF、渲染 PDF 頁、載入 COM，**不要把它縮回只 `import`**（被擋的 `.pyd` 多半是延遲載入的）。既有環境不論架構都重用。ARM 電腦要重試原生 ARM64 時用 `ensure_env.ps1 -RetryNative`：它把 x64 環境改名成 `.venv-x64-backup` 暫放，原生通過才刪 x64，沒通過就改名還原（中途被打斷，下次執行會自動還原）。**不要叫使用者手動刪共用環境來重試**
 - 原生 Windows ARM64 缺 wheel 的套件用 `skill/scripts/overrides-win-arm64.txt` 處理（`cryptography==46.0.3` 是最後一版有 win_arm64 wheel 的、排除 `uharfbuzz`），只在直譯器的 `sysconfig.get_platform()` 是 `win-arm64` 時才傳給 uv。**不要改寫成 `requirements-core.txt` 裡的 `platform_machine` 標記**：x64 Python 在 Prism 下也回報 `ARM64`，x64 環境會一起被套用
 - 因為原生 ARM64 環境沒有 `uharfbuzz`，`ocrmypdf.ocr()` 三個平台一律加 `pdf_renderer="sandwich"`（`verify_core.py` 與 `references/pdf.md` D3 都是）；`ocrmypdf` 不要降回 17.12 以前（舊版硬性需要沒有 win_arm64 wheel 的 `pi-heif`）
@@ -99,14 +100,14 @@ teach-file-toolkit/
 
 ## 已知環境陷阱
 
-- `chi_tra.traineddata` 不能寫入 `Program Files`，改放 `%LOCALAPPDATA%\Tesseract-OCR\tessdata`（並複製 `configs`／`tessconfigs`）
+- `chi_tra.traineddata` 不能寫入 `Program Files`，改放 `~/.local/share/file-toolkit/tessdata`（並複製 `configs`／`tessconfigs`）
 - `docx2pdf` 需桌面版 Word，且不支援 `python -m docx2pdf`
 - `powershell.exe`（5.1）會用 Big5 解讀無 BOM 的 UTF-8，中文註解的結尾會吃掉下一行程式碼，腳本直接解析失敗（2026-10-18 實測 `ensure_env.ps1` 在第 114 行出錯）——所以一律用 `pwsh` 執行，不是把腳本改成 ASCII
 - **Smart App Control（部分 Windows 11 預設開啟；NB-YI 與 PC-YI-SL 於 2026-08-20 皆為 `1`——PC-YI-SL 在 2026-08-05 曾記為未開啟，狀態會變，每台都要當場查）**會封鎖**尚未取得信譽**的執行檔與原生 DLL，典型症狀是 `uv.exe` 無法執行、PyMuPDF 的 `_mupdf.pyd` 載入失敗（`import fitz` → `No module named 'mupdf'`）。**但信譽會隨版本累積，不要假設某台電腦一定不行——當場實測**（2026-08-05 於 NB-YI／SAC=1 實測：`uv 0.11.31` 可執行、`PyMuPDF 1.28.0` 可 import）。真的被擋時的備案是改用系統 Python 的 `venv`＋`pip` 建環境。判斷指令：`(Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy').VerifiedAndReputablePolicyState`，`1` 為開啟。**SAC 一旦關閉就無法再開啟（需重設 Windows），不要建議使用者關掉它**
 - SAC 也會擋 **uv 寫進 `Scripts\` 的 45 KB 啟動器**，症狀是 `.venv\Scripts\python.exe` 一執行就回「應用程式控制原則已封鎖此檔案」，但**套件與 base Python 都是好的，壞的只有入口**。`ensure_env.ps1`（`install_windows.ps1` 也是透過它）已會自動偵測並用 base Python 的 `-m venv --without-pip` 就地重建入口（不加 `--without-pip` 時 `ensurepip` 可能失敗，2026-10-28 LT-YI-RS 實測）（保留 `site-packages`，不重裝套件）。同樣**信譽逐版累積**：2026-08-20 於 PC-YI-SL 實測，uv 0.11.25 於 2026-08-06 建的入口被擋、當下版本新建的沒被擋
 - **Windows on ARM 的原生 ARM64 套件比 x64 更容易被 SAC 擋**（下載的人少、信譽還沒累積）：2026-10-28 於 LT-YI-RS（ARM64、SAC=`1`）實測，原生 ARM64 環境 152 個 `.pyd` 固定有 28 個被擋（含 matplotlib 的 `_backend_agg`、`contourpy`、十幾個 `pywin32` 模組），x64 環境只有 3 個用不到的被擋；`ensure_env.ps1` 會自動退回 x64。上面「系統 Python 的 `venv`＋`pip`」備案只適用 x64 電腦，ARM 電腦不要改用 ARM64 系統 Python 自己裝
-- `.venv` 綁定建立當下的 base Python 絕對路徑，放在雲端同步資料夾**不能跨電腦共用**；共用環境一律建在 `%LOCALAPPDATA%\file-toolkit\.venv`
-- 在很深的資料夾（例如 Agent 的暫存區）模擬建共用環境會超過 Windows 260 字元路徑上限，症狀是明明檔案在卻 `ModuleNotFoundError`（例如 `pypdf._text_extraction._layout_mode._fixed_width_page`）；測試用的 `LOCALAPPDATA` 要指到短路徑
+- `.venv` 綁定建立當下的 base Python 絕對路徑，放在雲端同步資料夾**不能跨電腦共用**；共用環境一律建在 `~/.local/share/file-toolkit/.venv`
+- 在很深的資料夾（例如 Agent 的暫存區）模擬建共用環境會超過 Windows 260 字元路徑上限，症狀是明明檔案在卻 `ModuleNotFoundError`（例如 `pypdf._text_extraction._layout_mode._fixed_width_page`）；測試用的環境要建在短路徑
 - `ocrmypdf` 執行時會探測選用外部程式，印出數行 `[WinError 2] 系統找不到指定的檔案。` 屬正常，不影響結果
 - 跑 OCR 前必須有 `TESSDATA_PREFIX`。`ensure_ocr.ps1` 會設在使用者層級，但**同一個 session 已開的 shell 讀不到**——要重開 shell 或當場再設一次
 - `pypdfium2` 的 `scale` 以 72 dpi 為 1.0，換算是 `scale = dpi / 72`；抽文字用 `page.get_textpage().get_text_range()`

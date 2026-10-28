@@ -35,12 +35,7 @@ Windows on ARM 退回 x64 之後，過一陣子（Smart App Control 的信譽會
 pwsh -NoProfile -ExecutionPolicy Bypass -File skill/scripts/ensure_env.ps1 -RetryNative
 ```
 
-共用環境的位置兩個平台不同：
-
-| | 共用 venv | 套件管理 |
-|---|---|---|
-| Windows | `%LOCALAPPDATA%\file-toolkit\.venv` | WinGet |
-| macOS | `~/.local/share/file-toolkit/.venv` | Homebrew |
+共用環境兩個平台放在同一個位置 `~/.local/share/file-toolkit/.venv`（Windows 即 `%USERPROFILE%\.local\share\file-toolkit\.venv`）；系統工具 Windows 用 WinGet、macOS 用 Homebrew 安裝。
 
 也可以直接執行：
 
@@ -65,7 +60,7 @@ pwsh -File skill/scripts/ensure_ocr.ps1
 [`skill/`](skill/) 把這些能力包成一個可安裝的技能（安裝名 `file-toolkit`）。安裝後，直接對 Agent 說
 「把這些 PDF 合併」「用這份名單套印獎狀」「這份掃描 PDF 做 OCR」，它會自己備好環境、挑對寫法並輸出到 `output/`。
 
-- 技能會自動尋找可用環境：`FILE_TOOLKIT_PYTHON` → 專案 `.venv` → 共用環境 `%LOCALAPPDATA%\file-toolkit\.venv`（都沒有就用 `uv` 建立）
+- 技能會自動尋找可用環境：`FILE_TOOLKIT_PYTHON` → 專案 `.venv` → 共用環境 `~/.local/share/file-toolkit/.venv`（都沒有就用 `uv` 建立）
 - 五份 recipe（Word／Excel／PPT／PDF／其他）內的程式碼都經過實測
 - 一律輸出新檔，不覆蓋老師的原始教材
 

@@ -57,7 +57,7 @@ Agent 的權限機制若擋下 `-ExecutionPolicy Bypass`，不要想辦法繞過
 & "<上一步印出的路徑>" "./_work/do_task.py"
 ```
 
-尋找順序：`FILE_TOOLKIT_PYTHON` 環境變數 → 目前專案的 `.\.venv` → 共用環境 `%LOCALAPPDATA%\file-toolkit\.venv`。
+尋找順序：`FILE_TOOLKIT_PYTHON` 環境變數 → 目前專案的 `.\.venv` → 共用環境 `~/.local/share/file-toolkit/.venv`（兩個平台同一個位置）。
 
 新建時架構由腳本決定：Windows on ARM 先試原生 ARM64，被 Smart App Control 擋或裝不起來會自動改建 x64。**照它印出的路徑用就好，不要自己另建 ARM64 或 x64 環境**。使用者要求「重試 ARM64」時，加 `-RetryNative` 再跑一次：沒通過會保留原本的 x64 環境，不要叫使用者手動刪環境。
 
@@ -131,7 +131,7 @@ uv pip install --python "<Python 路徑>" docxcompose
 | 症狀 | 原因與處理 |
 |------|-----------|
 | `docx2pdf` 失敗或卡住 | 需要桌面版 Microsoft Word，且不支援 `python -m docx2pdf`；確認 Word 沒有開著跳對話框 |
-| OCR 找不到 `chi_tra` | 跑 `scripts\ensure_ocr.ps1`；模型不能放 `Program Files`，要在 `%LOCALAPPDATA%\Tesseract-OCR\tessdata` |
+| OCR 找不到 `chi_tra` | 跑 `scripts\ensure_ocr.ps1`；模型不能放 `Program Files`，Windows 放在 `~/.local/share/file-toolkit/tessdata` |
 | 圖表中文變空格 | matplotlib 未設中文字型，見 `references/misc.md` |
 | 裝完系統工具仍找不到指令 | PATH 尚未更新，需重開終端機或重啟 Agent |
 | PDF 文字抽不出來 | 是掃描圖片型 PDF，要先做 OCR 才有文字層 |

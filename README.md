@@ -29,6 +29,12 @@ Agent 會以 Python 3.12 建立共用環境（與技能同一份，不建在這�
 | Windows on ARM（Snapdragon、RTX Spark） | 先試原生 ARM64；裝不起來或被 Smart App Control 擋，自動改用 x64（靠 Prism 模擬） |
 | macOS M 晶片 | 原生 arm64 Python |
 
+Windows on ARM 退回 x64 之後，過一陣子（Smart App Control 的信譽會隨時間累積）可以重試原生 ARM64。沒通過的話，原本的 x64 環境會原封不動留著：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File skill/scripts/ensure_env.ps1 -RetryNative
+```
+
 共用環境的位置兩個平台不同：
 
 | | 共用 venv | 套件管理 |

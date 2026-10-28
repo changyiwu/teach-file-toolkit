@@ -1,7 +1,10 @@
 [CmdletBinding()]
 param(
     # Re-install the pinned list into a reused environment too (install_windows.ps1 uses this).
-    [switch]$Sync
+    [switch]$Sync,
+    # Windows on ARM only: try native ARM64 again for an existing x64 shared environment. The x64
+    # one is kept aside and restored if native still fails, so this is safe to run any time.
+    [switch]$RetryNative
 )
 
 # Find or create a Python environment with the 12 core packages.
@@ -12,6 +15,7 @@ param(
 #   Windows x64        -> x64 Python
 #   Windows ARM64      -> native ARM64 Python first; if it cannot install or Smart App Control
 #                         blocks its native modules, rebuild as x64 Python under Prism emulation
+#                         (-RetryNative tries native again later, once SAC reputation has grown)
 #   macOS Apple Silicon -> native arm64 Python (Intel Macs get whatever uv picks for 3.12)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -232,8 +236,67 @@ if ($IsWindows -and (Test-Path -LiteralPath $SharedPython) -and -not (Test-Pytho
     Repair-VenvLauncher -VenvPath $SharedVenv -PythonPath $SharedPython | Out-Null
 }
 
+# Check the OS architecture, not the process: x64 pwsh under emulation reports X64 as its process.
+$IsArmHost = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [Runtime.InteropServices.Architecture]::Arm64
+$X64Request = 'cpython-3.12-windows-x86_64-none'
+$WinArmRequest = 'cpython-3.12-windows-aarch64-none'
+# Renamed, not copied: console-script launchers hard-code the venv path, so a moved copy would
+# break, while renaming back restores it exactly.
+$X64Backup = "$SharedVenv-x64-backup"
+
+# An interrupted -RetryNative leaves the x64 environment parked under the backup name. Keep the
+# shared one if it passes; otherwise the backup is the last known good environment, so put it back.
+if ($IsWindows -and (Test-Path -LiteralPath $X64Backup)) {
+    if (Test-CoreEnv -PythonPath $SharedPython) {
+        Remove-Item -LiteralPath $X64Backup -Recurse -Force
+    }
+    else {
+        Write-Host 'Restoring the x64 environment left aside by an interrupted -RetryNative...'
+        if (Test-Path -LiteralPath $SharedVenv) {
+            Remove-Item -LiteralPath $SharedVenv -Recurse -Force
+        }
+        Rename-Item -LiteralPath $X64Backup -NewName (Split-Path -Leaf $SharedVenv)
+    }
+}
+
+if ($RetryNative) {
+    if (-not ($IsWindows -and $IsArmHost)) {
+        Write-Host '-RetryNative only applies to Windows on ARM; ignored.'
+    }
+    elseif ((Get-PythonPlatform -PythonPath $SharedPython) -ne 'win-amd64') {
+        # Already native, or no x64 environment to replace: the normal flow below tries native first.
+        Write-Host '-RetryNative: the shared environment is not x64, nothing to retry.'
+    }
+    else {
+        $UvPath = Find-Uv
+        if (-not $UvPath) {
+            throw '-RetryNative needs uv, which was not found. Run this script once without -RetryNative.'
+        }
+        Write-Host '-RetryNative: setting the x64 environment aside and trying native ARM64...'
+        try {
+            Rename-Item -LiteralPath $SharedVenv -NewName (Split-Path -Leaf $X64Backup)
+        }
+        catch {
+            throw "Could not set $SharedVenv aside, most likely because a program is still using it. Close it and run again. $($_.Exception.Message)"
+        }
+        $Failure = New-SharedEnv -UvPath $UvPath -PythonRequest $WinArmRequest
+        if ($Failure) {
+            Write-Host "Native ARM64 is still not usable: $Failure"
+            Write-Host 'Keeping the x64 environment.'
+            if (Test-Path -LiteralPath $SharedVenv) {
+                Remove-Item -LiteralPath $SharedVenv -Recurse -Force
+            }
+            Rename-Item -LiteralPath $X64Backup -NewName (Split-Path -Leaf $SharedVenv)
+        }
+        else {
+            Write-Host 'Native ARM64 passed the core check; switched to it and removed the x64 environment.'
+            Remove-Item -LiteralPath $X64Backup -Recurse -Force
+        }
+    }
+}
+
 # Step 1: reuse an existing environment if one already passes the core check, whatever its
-# architecture. An x64 environment on an ARM machine stays x64; delete it to retry native ARM64.
+# architecture. An x64 environment on an ARM machine stays x64 until -RetryNative succeeds.
 $Candidates = @(
     $env:FILE_TOOLKIT_PYTHON,
     $LocalPython,
@@ -288,10 +351,6 @@ if (-not $UvPath) {
     }
 }
 
-# Check the OS architecture, not the process: x64 pwsh under emulation reports X64 as its process.
-$IsArmHost = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [Runtime.InteropServices.Architecture]::Arm64
-$X64Request = 'cpython-3.12-windows-x86_64-none'
-
 if ($IsWindows -and $IsArmHost) {
     # A leftover x64 environment here only failed the check (missing or broken packages), so
     # repair it as x64 instead of throwing it away for another native attempt.
@@ -301,7 +360,7 @@ if ($IsWindows -and $IsArmHost) {
     }
     else {
         Write-Host 'Windows ARM64: trying a native ARM64 environment first...'
-        $Failure = New-SharedEnv -UvPath $UvPath -PythonRequest 'cpython-3.12-windows-aarch64-none'
+        $Failure = New-SharedEnv -UvPath $UvPath -PythonRequest $WinArmRequest
         if ($Failure) {
             # Native ARM64 wheels are downloaded far less, so Smart App Control often has no
             # reputation for their DLLs yet (2026-10-28, LT-YI-RS: 28 of 152 modules blocked).
